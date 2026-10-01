@@ -1,7 +1,7 @@
 // sw.js — офлайн-режим. Сначала сеть (чтобы обновления доходили сразу), при её отсутствии — кэш.
-const CACHE = 'english-v1';
+const CACHE = 'english-v2';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'css/styles.css', 'js/main.js',
-  'js/core/db.js', 'js/core/textUtils.js', 'js/core/translator.js', 'js/core/seed.js'];
+  'js/core/db.js', 'js/core/textUtils.js', 'js/core/translator.js', 'js/core/seed.js', 'js/vocabulary/wordsTable.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

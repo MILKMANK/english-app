@@ -84,6 +84,8 @@ export async function getCache(key) {
 }
 export const setCache = (key, value) => run('cache', 'readwrite', (s) => s.put({ key, value, at: Date.now() }));
 
+export const clearCache = () => run('cache', 'readwrite', (s) => s.clear());
+
 // ---------- Настройки ----------
 export async function getSetting(key, fallback = null) {
   const r = await run('settings', 'readonly', (s) => s.get(key));
