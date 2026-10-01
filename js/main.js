@@ -36,6 +36,9 @@ const screens = {
     <h2>Переводчик</h2>
     <select id="provider">${Object.entries(PROVIDER_LABELS).map(([k, v]) => `<option value="${k}"${k === provider ? ' selected' : ''}>${v}</option>`).join('')}</select>
     <button class="btn" id="clearCache">Очистить кэш переводов</button> <span id="cleared" class="muted"></span>
+    <h2>Диагностика шрифта</h2>
+    <p id="fontinfo" class="muted">Проверяю…</p>
+    <p style="font-weight:400">Montserrat 400: Привет, hello</p><p style="font-weight:600">Montserrat 600: Привет, hello</p><p style="font-weight:700">Montserrat 700: Привет, hello</p>
     <h2>Проверка переводчика</h2>
     <input id="tw" placeholder="Слово, например: reluctant">
     <input id="ts" placeholder="Предложение с этим словом">
@@ -44,7 +47,19 @@ const screens = {
   },
 };
 
+async function checkFont() {
+  const el = document.getElementById('fontinfo');
+  const weights = [400, 600, 700];
+  await Promise.all(weights.map((w) => document.fonts.load(`${w} 16px Montserrat`, 'Aa Яя').catch(() => [])));
+  const faces = [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'Montserrat');
+  const loaded = faces.filter((f) => f.status === 'loaded').length;
+  const bad = faces.filter((f) => f.status === 'error').length;
+  el.textContent = loaded === 6 ? 'Montserrat загружен полностью (6 из 6 файлов).'
+    : `Загружено файлов: ${loaded} из 6, не найдено: ${bad}. Проверьте имена файлов в папке fonts (нужны montserrat-latin-400-normal.woff2, ...-600-..., ...-700-... и такие же cyrillic).`;
+}
+
 function bindSettings() {
+  checkFont();
   document.getElementById('provider').onchange = (e) => db.setSetting('provider', e.target.value);
   document.getElementById('clearCache').onclick = async () => {
     await db.clearCache();

@@ -1,6 +1,7 @@
 // wordsTable.js — раздел «Словарь»: слова, переводы, предложения с переводом, удаление.
 import * as db from '../core/db.js';
 import { tokenize } from '../core/textUtils.js';
+import { markTranslationAny } from '../core/translator.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const TRASH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>';
@@ -8,6 +9,13 @@ const TRASH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" strok
 // Английское предложение с выделенным словом.
 function highlight(sentence, word) {
   return tokenize(sentence).map((t) => (t.type === 'word' && t.norm === word ? `<mark>${esc(t.text)}</mark>` : esc(t.text))).join('');
+}
+
+// Русское предложение с выделенным словом (по основе слова, приблизительно).
+function highlightRu(sentence, translations) {
+  const m = markTranslationAny(sentence, translations);
+  if (!m) return esc(sentence);
+  return esc(sentence.slice(0, m.start)) + '<mark>' + esc(sentence.slice(m.start, m.end)) + '</mark>' + esc(sentence.slice(m.end));
 }
 
 export async function renderWordsTable(container) {
@@ -18,7 +26,7 @@ export async function renderWordsTable(container) {
         <div><b>${esc(w.word)}</b> — ${esc(w.translations.join(', '))}</div>
         <button class="icon-btn" data-del="${esc(w.word)}" title="Удалить слово" aria-label="Удалить слово">${TRASH}</button>
       </div>
-      ${w.sentences.map((s) => `<div class="sent"><div>${highlight(s.en, w.word)}</div><div class="muted">${esc(s.ru)}</div></div>`).join('')}
+      ${w.sentences.map((s) => `<div class="sent"><div>${highlight(s.en, w.word)}</div><div class="muted">${highlightRu(s.ru, w.translations)}</div></div>`).join('')}
     </div>`).join('');
 
   container.onclick = async (e) => {

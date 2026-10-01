@@ -76,3 +76,13 @@ export function markTranslation(sentenceRu, wordRu) {
   const m = new RegExp('(?<![\\p{L}])' + stem + '[\\p{L}]*', 'iu').exec(sentenceRu);
   return m ? { start: m.index, end: m.index + m[0].length } : null;
 }
+
+// То же, но пробует все варианты перевода слова (например «заниматься, добиваться»).
+export function markTranslationAny(sentenceRu, translations) {
+  const variants = (translations || []).flatMap((x) => x.split(/[,;]/)).map((x) => x.trim()).filter(Boolean);
+  for (const v of variants) {
+    const m = markTranslation(sentenceRu, v);
+    if (m) return m;
+  }
+  return null;
+}
