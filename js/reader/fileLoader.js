@@ -59,6 +59,27 @@ function finalize(sections) {
 
 // ---------- TXT ----------
 const HEADING = /^(chapter|part|book|section)\s+[\w.-]+(\s*[:.–—-].*)?$|^(prologue|epilogue|preface|introduction)$/i;
+
+// Делит список абзацев на главы по строкам вида «Chapter one». Если сразу за такой строкой
+// идёт короткая строка без точки («The Ghost Ship», «Gold!»), она становится частью названия.
+export function splitByHeadings(paras) {
+  const out = []; let cur = { title: '', paras: [] };
+  for (let i = 0; i < paras.length; i++) {
+    const p = paras[i];
+    if (p.length <= 80 && HEADING.test(p)) {
+      if (cur.title || cur.paras.length) out.push(cur);
+      let title = p;
+      const nx = paras[i + 1];
+      if (nx && nx.length <= 60 && nx.split(' ').length <= 8 && !/[.,;:]$/.test(nx) && !/^["“‘'(]/.test(nx) && !HEADING.test(nx)) {
+        title = `${p}: ${nx}`; i++;
+      }
+      cur = { title, paras: [] };
+    } else cur.paras.push(p);
+  }
+  out.push(cur);
+  return out;
+}
+
 function loadTxt(buf) {
   let raw;
   try { raw = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { raw = new TextDecoder('windows-1252').decode(buf); }
@@ -67,13 +88,7 @@ function loadTxt(buf) {
   const paras = blocks.length < 3
     ? raw.split('\n').map(clean).filter(Boolean)           // абзац = строка
     : blocks.map((b) => clean(b.replace(/\n/g, ' ')));     // строки внутри абзаца склеиваем
-  const sections = []; let cur = { title: '', paras: [] };
-  for (const p of paras) {
-    if (p.length <= 80 && HEADING.test(p)) { if (cur.title || cur.paras.length) sections.push(cur); cur = { title: p, paras: [] }; }
-    else cur.paras.push(p);
-  }
-  sections.push(cur);
-  return { title: '', sections };
+  return { title: '', sections: splitByHeadings(paras) };
 }
 
 // ---------- DOCX ----------
@@ -174,7 +189,10 @@ async function loadEpub(buf) {
     const h = body.querySelector('h1,h2,h3');
     const title = toc.get(m.href) || clean(h ? h.textContent : '');
     if (paras.length && title && paras[0].toLowerCase() === title.toLowerCase()) paras.shift();
-    sections.push({ title, paras });
+    // Если в самом тексте есть строки «Chapter N» (вся книга в одном файле) — режем по ним.
+    const parts = splitByHeadings(paras);
+    if (parts.length === 1) sections.push({ title, paras });
+    else parts.forEach((s, k) => sections.push(k === 0 ? { title, paras: s.paras } : s));
   }
   return { title: t ? t.textContent : '', sections };
 }

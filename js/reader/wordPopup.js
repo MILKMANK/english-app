@@ -29,7 +29,10 @@ export function createPopup({ translator, onSaved }) {
   function render() {
     const canSave = !s.saved && s.trList.length && s.sentTr != null;
     el.innerHTML = `
-      <div class="pw-word"><b>${esc(s.norm)}</b>${s.inDict ? ' <span class="muted">· в словаре</span>' : ''}</div>
+      <div class="pw-head">
+        <div class="pw-word"><b>${esc(s.norm)}</b>${s.inDict ? ' <span class="muted">· в словаре</span>' : ''}</div>
+        <button class="pw-x" data-act="close" aria-label="Закрыть" title="Закрыть">✕</button>
+      </div>
       <div class="pw-tr">${s.trList.length ? esc(s.trList.join(', ')) : s.wordLoading ? '…' : ''}</div>
       <div class="pw-sent">${sentenceHtml()}</div>
       <div class="pw-sent pw-ru">${translationHtml()}</div>
@@ -37,7 +40,6 @@ export function createPopup({ translator, onSaved }) {
       <div class="pw-btns">
         ${s.errors.length ? '<button class="btn" data-act="retry">Повторить</button>' : ''}
         <button class="btn" data-act="save" ${canSave ? '' : 'disabled'}>${s.saved ? '✓ Сохранено' : 'Запомнить'}</button>
-        <button class="btn ghost" data-act="close">Закрыть</button>
       </div>`;
   }
 
@@ -83,6 +85,19 @@ export function createPopup({ translator, onSaved }) {
 
   function close() { token++; el.hidden = true; el.innerHTML = ''; s = null; }
 
+  // Тап в любом месте вне окна (и не по слову) закрывает его. Прокрутка не считается тапом.
+  let tap = null;
+  const onDown = (e) => { tap = { x: e.clientX, y: e.clientY }; };
+  const onUp = (e) => {
+    const d = tap; tap = null;
+    if (!d || !s || el.hidden || el.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.w')) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
+    close();
+  };
+  document.addEventListener('pointerdown', onDown);
+  document.addEventListener('pointerup', onUp);
+
   el.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]');
     if (!act || !s) return;
@@ -98,5 +113,5 @@ export function createPopup({ translator, onSaved }) {
     }
   });
 
-  return { open, close, destroy() { close(); ro.disconnect(); el.remove(); document.body.style.removeProperty('--popup-h'); } };
+  return { open, close, destroy() { close(); document.removeEventListener('pointerdown', onDown); document.removeEventListener('pointerup', onUp); ro.disconnect(); el.remove(); document.body.style.removeProperty('--popup-h'); } };
 }

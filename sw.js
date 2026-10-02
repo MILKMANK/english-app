@@ -1,7 +1,7 @@
 // sw.js — офлайн-режим. Сначала сеть (чтобы обновления доходили сразу), при её отсутствии — кэш.
-const CACHE = 'english-v3';
+const CACHE = 'english-v4';
 const ASSETS = ['./', 'index.html', 'manifest.json', 'css/styles.css', 'js/main.js',
-  'js/core/db.js', 'js/core/textUtils.js', 'js/core/translator.js', 'js/core/seed.js', 'js/vocabulary/wordsTable.js',
+  'js/core/db.js', 'js/core/textUtils.js', 'js/core/translator.js', 'js/core/seed.js', 'js/vocabulary/wordsTable.js', 'js/vocabulary/srs.js', 'js/vocabulary/statsPanel.js',
   'js/reader/zip.js', 'js/reader/fileLoader.js', 'js/reader/readerView.js', 'js/reader/wordPopup.js'];
 
 self.addEventListener('install', (e) => {

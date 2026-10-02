@@ -7,6 +7,7 @@ import { createPopup } from './wordPopup.js';
 // Как открывать слово: 'double' — двойной клик/тап, 'single' — одиночный.
 export const CLICK_MODE = 'double';
 const DOUBLE_MS = 350;
+const PENCIL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>';
 const TRASH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>';
 
 export function mountReader(container, { translator }) {
@@ -28,7 +29,8 @@ export function mountReader(container, { translator }) {
       const pr = await db.getSetting('progress:' + b.id, null);
       rows.push(`<div class="card book" data-open="${b.id}">
         <div><b>${esc(b.title)}</b><div class="muted">глав: ${b.chapterCount}${pr ? ` · остановились на гл. ${pr.chapter + 1}` : ''}</div></div>
-        <button class="icon-btn" data-delbook="${b.id}" title="Удалить книгу" aria-label="Удалить книгу">${TRASH}</button></div>`);
+        <div class="word-actions"><button class="icon-btn" data-rename="${b.id}" title="Изменить название" aria-label="Изменить название">${PENCIL}</button>
+        <button class="icon-btn" data-delbook="${b.id}" title="Удалить книгу" aria-label="Удалить книгу">${TRASH}</button></div></div>`);
     }
     container.innerHTML = `<h1>Чтение</h1>
       <label class="btn">Загрузить книгу<input id="file" type="file" accept=".epub,.txt,.docx" hidden></label>
@@ -36,6 +38,14 @@ export function mountReader(container, { translator }) {
       <div id="msg"></div>${rows.join('') || '<p class="muted">Пока нет книг.</p>'}`;
     container.querySelector('#file').onchange = onFile;
     container.onclick = async (e) => {
+      const ren = e.target.closest('[data-rename]');
+      if (ren) {
+        const id = +ren.dataset.rename;
+        const b = books.find((x) => x.id === id);
+        const name = prompt('Название книги', b ? b.title : '');
+        if (name && name.trim()) { await db.renameBook(id, name.trim()); showLibrary(); }
+        return;
+      }
       const del = e.target.closest('[data-delbook]');
       if (del) {
         const id = +del.dataset.delbook;

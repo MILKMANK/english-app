@@ -3,6 +3,7 @@ import * as db from './core/db.js';
 import { createTranslator, markTranslation, PROVIDER_LABELS } from './core/translator.js';
 import { renderWordsTable } from './vocabulary/wordsTable.js';
 import { mountReader } from './reader/readerView.js';
+import { renderStats } from './vocabulary/statsPanel.js';
 import { tokenize, splitSentences } from './core/textUtils.js';
 import { SEED_WORDS } from './core/seed.js';
 
@@ -24,7 +25,7 @@ const screens = {
 
   vocab: async () => '<h1>Словарь</h1><div id="words"></div>',
 
-  study: async () => `<h1>Учить</h1><p class="muted">Счётчики, карточки и квиз появятся на этапах 3–5.</p>`,
+  study: async () => '<h1>Учить</h1><div id="stats"></div>',
 
   settings: async () => {
     const provider = await db.getSetting('provider', 'mymemory');
@@ -101,6 +102,7 @@ async function show(tab) {
   if (tab === 'read') cleanup = mountReader(document.getElementById('reader'), { translator });
   if (tab === 'settings') bindSettings();
   if (tab === 'vocab') await renderWordsTable(document.getElementById('words'));
+  if (tab === 'study') await renderStats(document.getElementById('stats'));
   localStorage.setItem('tab', tab);
 }
 

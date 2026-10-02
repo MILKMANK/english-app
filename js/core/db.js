@@ -97,6 +97,18 @@ export const setSetting = (key, value) => run('settings', 'readwrite', (s) => s.
 // Книга: { id, title, chapters:[{title, text}], progress:{chapter, scroll}, addedAt }
 export const saveBook = (b) => run('books', 'readwrite', (s) => s.put({ addedAt: Date.now(), ...b }));
 export const getBook = (id) => run('books', 'readonly', (s) => s.get(id));
+export async function renameBook(id, title) {
+  const d = await open();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction('books', 'readwrite');
+    const s = t.objectStore('books');
+    const g = s.get(id);
+    g.onsuccess = () => { if (g.result) s.put({ ...g.result, title }); };
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
 export const deleteBook = (id) => run('books', 'readwrite', (s) => s.delete(id));
 export async function listBooks() {
   const all = await run('books', 'readonly', (s) => s.getAll());
