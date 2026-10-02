@@ -2,6 +2,7 @@
 import * as db from './core/db.js';
 import { createTranslator, markTranslation, PROVIDER_LABELS } from './core/translator.js';
 import { renderWordsTable } from './vocabulary/wordsTable.js';
+import { mountReader } from './reader/readerView.js';
 import { tokenize, splitSentences } from './core/textUtils.js';
 import { SEED_WORDS } from './core/seed.js';
 
@@ -19,7 +20,7 @@ async function seedOnce() {
 }
 
 const screens = {
-  read: async () => `<h1>Чтение</h1><p class="muted">Загрузка книг и кликабельный текст появятся на этапе 2.</p>`,
+  read: async () => '<div id="reader"></div>',
 
   vocab: async () => '<h1>Словарь</h1><div id="words"></div>',
 
@@ -92,9 +93,12 @@ function bindSettings() {
   };
 }
 
+let cleanup = null;
 async function show(tab) {
+  if (cleanup) { cleanup(); cleanup = null; }
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   view.innerHTML = await screens[tab]();
+  if (tab === 'read') cleanup = mountReader(document.getElementById('reader'), { translator });
   if (tab === 'settings') bindSettings();
   if (tab === 'vocab') await renderWordsTable(document.getElementById('words'));
   localStorage.setItem('tab', tab);

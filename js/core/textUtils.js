@@ -70,3 +70,5 @@ export function chunkText(text, max) {
   if (cur) chunks.push(cur);
   return chunks;
 }
+
+export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
