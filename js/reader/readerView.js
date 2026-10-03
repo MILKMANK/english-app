@@ -156,21 +156,29 @@ export function mountReader(container, { translator }) {
       const now = Date.now();
       if (CLICK_MODE === 'single') return openWord(el);
       if (lastTap && lastTap.el === el && now - lastTap.t < DOUBLE_MS) { lastTap = null; openWord(el); }
-      else lastTap = { el, t: now };
+      else { lastTap = { el, t: now }; prefetch(el); }
     });
   }
 
-  function openWord(el) {
+  function wordContext(el) {
     const pi = +el.closest('p').dataset.p;
     const text = paras[pi];
     if (!sentCache.has(pi)) sentCache.set(pi, splitSentences(text));
     const off = +el.dataset.o;
     const s = sentenceAt(sentCache.get(pi), off);
-    popup.open({
+    return {
       norm: el.dataset.n, shown: el.textContent,
       sentence: s ? s.text : text, relStart: s ? off - s.start : off, relLen: el.textContent.length,
       bookId: book.id, anchor: el,
-    });
+    };
+  }
+  const openWord = (el) => popup.open(wordContext(el));
+
+  // Первый тап двойного: запускаем перевод заранее, ко второму тапу он уже в пути (или в кэше).
+  function prefetch(el) {
+    const c = wordContext(el);
+    if (!known.has(c.norm)) translator.translateWord(c.norm).catch(() => {});
+    translator.translateSentence(c.sentence).catch(() => {});
   }
 
   // ---------- позиция чтения ----------

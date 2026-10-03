@@ -44,7 +44,12 @@ const PROVIDERS = {
 };
 export const PROVIDER_LABELS = Object.fromEntries(Object.entries(PROVIDERS).map(([k, v]) => [k, v.label]));
 
-export function createTranslator({ getCache, setCache, getEmail, getProvider = async () => 'mymemory', fetchFn = (...a) => fetch(...a) }) {
+export function createTranslator({ getCache, setCache, getEmail, getProvider = async () => 'mymemory', setProvider = async () => {}, fetchFn = (...a) => fetch(...a) }) {
+  const inflight = new Map(); // одинаковые запросы, идущие одновременно, склеиваются в один
+  async function currentName() {
+    const n = await getProvider();
+    return PROVIDERS[n] ? n : 'mymemory';
+  }
   async function translate(kind, text) {
     const clean = text.trim();
     let name = await getProvider();
@@ -53,24 +58,46 @@ export function createTranslator({ getCache, setCache, getEmail, getProvider = a
     const key = `${name}:${kind}:` + (kind === 'w' ? clean.toLowerCase() : clean);
     const hit = await getCache(key);
     if (hit) return { text: hit, cached: true, provider: name };
-    const ctx = { email: ((await getEmail()) || '').trim(), fetchFn };
-    const parts = [];
-    for (const chunk of chunkText(clean, MAX_Q)) parts.push(await PROVIDERS[name].request(chunk, ctx));
-    let result = parts.join(' ');
-    if (kind === 'w') result = result.toLowerCase();
-    await setCache(key, result);
-    return { text: result, cached: false, provider: name };
+    if (inflight.has(key)) return inflight.get(key);
+    const job = (async () => {
+      const ctx = { email: ((await getEmail()) || '').trim(), fetchFn };
+      const parts = [];
+      for (const chunk of chunkText(clean, MAX_Q)) parts.push(await PROVIDERS[name].request(chunk, ctx));
+      let result = parts.join(' ');
+      if (kind === 'w') result = result.toLowerCase();
+      // Переводчик иногда «переводит» слово само в себя (he -> he). Это не перевод: не кэшируем.
+      if (result.trim().toLowerCase() === clean.toLowerCase()) {
+        throw new TranslateError('same', 'Переводчик не смог перевести. Нажмите ↻, чтобы попробовать другой');
+      }
+      await setCache(key, result);
+      return { text: result, cached: false, provider: name };
+    })();
+    inflight.set(key, job);
+    try { return await job; } finally { inflight.delete(key); }
   }
   return {
     translateWord: (w) => translate('w', w),
     translateSentence: (s) => translate('s', s),
+    currentProvider: currentName,
+    // Переключает на следующий переводчик (и запоминает выбор), возвращает его имя.
+    async switchProvider() {
+      const names = Object.keys(PROVIDERS);
+      const next = names[(names.indexOf(await currentName()) + 1) % names.length];
+      await setProvider(next);
+      return next;
+    },
   };
 }
 
 // Ищет в переводе предложения слово, соответствующее переводу слова (по основе).
 export function markTranslation(sentenceRu, wordRu) {
   const first = (wordRu || '').split(/[,;/]/)[0].trim().toLowerCase();
-  if (first.length < 3) return null;
+  if (first.length < 2) return null;
+  const safe = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (first.length === 2) { // «он», «мы», «не»: только слово целиком, без окончаний
+    const m2 = new RegExp('(?<![\\p{L}])' + safe + '(?![\\p{L}])', 'iu').exec(sentenceRu);
+    return m2 ? { start: m2.index, end: m2.index + m2[0].length } : null;
+  }
   const n = first.length >= 7 ? 5 : first.length >= 5 ? 4 : first.length - 1;
   const stem = first.slice(0, Math.max(3, n)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = new RegExp('(?<![\\p{L}])' + stem + '[\\p{L}]*', 'iu').exec(sentenceRu);

@@ -3,13 +3,15 @@ import * as db from './core/db.js';
 import { createTranslator, markTranslation, PROVIDER_LABELS } from './core/translator.js';
 import { renderWordsTable } from './vocabulary/wordsTable.js';
 import { mountReader } from './reader/readerView.js';
-import { renderStats } from './vocabulary/statsPanel.js';
+import { mountStudy } from './study/studyView.js';
+import { downloadBackup, restoreFromFile } from './core/backup.js';
 import { tokenize, splitSentences } from './core/textUtils.js';
 import { SEED_WORDS } from './core/seed.js';
 
 const translator = createTranslator({
   getCache: db.getCache, setCache: db.setCache, getEmail: () => db.getSetting('email', ''),
   getProvider: () => db.getSetting('provider', 'mymemory'),
+  setProvider: (v) => db.setSetting('provider', v),
 });
 const view = document.getElementById('view');
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -25,7 +27,7 @@ const screens = {
 
   vocab: async () => '<h1>Словарь</h1><div id="words"></div>',
 
-  study: async () => '<h1>Учить</h1><div id="stats"></div>',
+  study: async () => '<div id="study"></div>',
 
   settings: async () => {
     const provider = await db.getSetting('provider', 'mymemory');
@@ -38,6 +40,11 @@ const screens = {
     <h2>Переводчик</h2>
     <select id="provider">${Object.entries(PROVIDER_LABELS).map(([k, v]) => `<option value="${k}"${k === provider ? ' selected' : ''}>${v}</option>`).join('')}</select>
     <button class="btn" id="clearCache">Очистить кэш переводов</button> <span id="cleared" class="muted"></span>
+    <h2>Резервная копия</h2>
+    <p class="muted">Слова, книги и место, где остановились. Делайте копию время от времени: данные хранятся только в этом браузере.</p>
+    <button class="btn" id="backupBtn">Скачать копию</button>
+    <label class="btn ghost">Восстановить из копии<input id="restoreFile" type="file" accept=".json,application/json" hidden></label>
+    <p id="backupMsg" class="muted"></p>
     <h2>Диагностика шрифта</h2>
     <p id="fontinfo" class="muted">Проверяю…</p>
     <p style="font-weight:400">Montserrat 400: Привет, hello</p><p style="font-weight:600">Montserrat 600: Привет, hello</p><p style="font-weight:700">Montserrat 700: Привет, hello</p>
@@ -60,7 +67,25 @@ async function checkFont() {
     : `Загружено файлов: ${loaded} из 6, не найдено: ${bad}. Проверьте имена файлов в папке fonts (нужны montserrat-latin-400-normal.woff2, ...-600-..., ...-700-... и такие же cyrillic).`;
 }
 
+function bindBackup() {
+  const msg = document.getElementById('backupMsg');
+  document.getElementById('backupBtn').onclick = async () => {
+    msg.className = 'muted'; msg.textContent = 'Готовлю копию…';
+    try { const r = await downloadBackup(); msg.textContent = r === 'cancelled' ? '' : 'Копия сохранена'; }
+    catch (e) { msg.className = 'err'; msg.textContent = 'Не удалось сделать копию: ' + e.message; }
+  };
+  document.getElementById('restoreFile').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    msg.className = 'muted'; msg.textContent = 'Восстанавливаю…';
+    try { const r = await restoreFromFile(f); msg.textContent = `Готово: слов в копии ${r.words}, добавлено книг ${r.books}`; }
+    catch (err) { msg.className = 'err'; msg.textContent = err.message; }
+    e.target.value = '';
+  };
+}
+
 function bindSettings() {
+  bindBackup();
   checkFont();
   document.getElementById('provider').onchange = (e) => db.setSetting('provider', e.target.value);
   document.getElementById('clearCache').onclick = async () => {
@@ -94,19 +119,23 @@ function bindSettings() {
   };
 }
 
+const isIosBrowserTab = () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone;
+const IOS_NOTICE = `<div class="notice">Вы открыли сайт в браузере Safari. Слова и книги, сохранённые в приложении с иконки на экране «Домой», здесь не видны: у них отдельное хранилище. Открывайте приложение только с иконки.</div>`;
+
 let cleanup = null;
 async function show(tab) {
   if (cleanup) { cleanup(); cleanup = null; }
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-  view.innerHTML = await screens[tab]();
+  view.innerHTML = (isIosBrowserTab() ? IOS_NOTICE : '') + (await screens[tab]());
   if (tab === 'read') cleanup = mountReader(document.getElementById('reader'), { translator });
   if (tab === 'settings') bindSettings();
   if (tab === 'vocab') await renderWordsTable(document.getElementById('words'));
-  if (tab === 'study') await renderStats(document.getElementById('stats'));
+  if (tab === 'study') cleanup = mountStudy(document.getElementById('study'));
   localStorage.setItem('tab', tab);
 }
 
 async function start() {
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // просим браузер не удалять данные сам
   try { await seedOnce(); } catch (e) { view.innerHTML = `<p class="err">Ошибка базы: ${esc(e.message)}</p>`; return; }
   document.querySelectorAll('#tabs button').forEach((b) => (b.onclick = () => show(b.dataset.tab)));
   await show(localStorage.getItem('tab') || 'read');

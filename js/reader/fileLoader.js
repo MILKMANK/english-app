@@ -47,14 +47,14 @@ function finalize(sections) {
   for (const s of merged) {
     if (words(s) <= MAX_WORDS) { res.push(s); continue; }
     let part = [], n = 0, k = 1;
-    const label = (k) => (s.title ? `${s.title} (${k})` : `Часть ${k}`);
+    const label = (k) => (s.title ? `${s.title} (${k})` : `Part ${k}`);
     for (const p of s.paras) {
       if (n + wc(p) > CHUNK && part.length) { res.push({ title: label(k++), paras: part }); part = []; n = 0; }
       part.push(p); n += wc(p);
     }
     if (part.length) res.push({ title: label(k), paras: part });
   }
-  return res.map((s, i) => ({ title: s.title || `Часть ${i + 1}`, text: s.paras.join('\n\n') }));
+  return res.map((s, i) => ({ title: s.title || `Part ${i + 1}`, text: s.paras.join('\n\n') }));
 }
 
 // ---------- TXT ----------

@@ -1,7 +1,7 @@
-// wordPopup.js — нижнее окно: перевод слова, предложение, перевод предложения, «Запомнить» / «Закрыть».
+// wordPopup.js — нижнее окно: перевод слова, предложение, перевод предложения, «Запомнить», ↻ (другой переводчик), ✕.
 import * as db from '../core/db.js';
 import { esc } from '../core/textUtils.js';
-import { markTranslationAny } from '../core/translator.js';
+import { markTranslationAny, PROVIDER_LABELS } from '../core/translator.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -11,10 +11,13 @@ export function createPopup({ translator, onSaved }) {
   el.hidden = true;
   document.body.appendChild(el);
   let token = 0;
-  let s = null; // текущее состояние
+  let s = null; // состояние открытого окна
 
   const ro = new ResizeObserver(() => document.body.style.setProperty('--popup-h', el.hidden ? '0px' : el.offsetHeight + 'px'));
   ro.observe(el);
+
+  // Переводы слова: свежий (если есть) и сохранённые в словаре.
+  const trList = () => [...new Set([...(s.newTr ? [s.newTr] : []), ...s.stored])];
 
   function sentenceHtml() {
     const { sentence, relStart, relLen } = s;
@@ -22,22 +25,27 @@ export function createPopup({ translator, onSaved }) {
   }
   function translationHtml() {
     if (s.sentTr == null) return s.sentLoading ? '…' : '';
-    const m = markTranslationAny(s.sentTr, s.trList);
+    const m = markTranslationAny(s.sentTr, trList());
     if (!m) return esc(s.sentTr);
     return esc(s.sentTr.slice(0, m.start)) + '<b class="hl">' + esc(s.sentTr.slice(m.start, m.end)) + '</b>' + esc(s.sentTr.slice(m.end));
   }
   function render() {
-    const canSave = !s.saved && s.trList.length && s.sentTr != null;
+    const list = trList();
+    const canSave = !s.saved && list.length && s.sentTr != null;
     el.innerHTML = `
       <div class="pw-head">
         <div class="pw-word"><b>${esc(s.norm)}</b>${s.inDict ? ' <span class="muted">· в словаре</span>' : ''}</div>
-        <button class="pw-x" data-act="close" aria-label="Закрыть" title="Закрыть">✕</button>
+        <div class="pw-top">
+          <button class="pw-x" data-act="switch" aria-label="Другой переводчик" title="Другой переводчик">↻</button>
+          <button class="pw-x" data-act="close" aria-label="Закрыть" title="Закрыть">✕</button>
+        </div>
       </div>
-      <div class="pw-tr">${s.trList.length ? esc(s.trList.join(', ')) : s.wordLoading ? '…' : ''}</div>
+      <div class="pw-tr">${list.length ? esc(list.join(', ')) : s.wordLoading ? '…' : ''}</div>
       <div class="pw-sent">${sentenceHtml()}</div>
       <div class="pw-sent pw-ru">${translationHtml()}</div>
       ${s.errors.length ? `<div class="err">${esc(s.errors[0])}</div>` : ''}
       <div class="pw-btns">
+        <span class="muted small pw-prov">${esc(PROVIDER_LABELS[s.provider] || '')}</span>
         ${s.errors.length ? '<button class="btn" data-act="retry">Повторить</button>' : ''}
         <button class="btn" data-act="save" ${canSave ? '' : 'disabled'}>${s.saved ? '✓ Сохранено' : 'Запомнить'}</button>
       </div>`;
@@ -52,35 +60,51 @@ export function createPopup({ translator, onSaved }) {
     if (r.bottom > limit) window.scrollBy(0, r.bottom - limit + 16);
   }
 
+  // Запрашивает недостающие переводы; каждый появляется в окне, как только готов.
+  async function fetchTranslations(my) {
+    const fail = (e) => { if (my === token) s.errors.push(e.message || 'Ошибка перевода'); };
+    const jobs = [];
+    if (s.wordLoading) {
+      jobs.push(translator.translateWord(s.norm).then((r) => { if (my === token) { s.newTr = r.text; s.provider = r.provider; } }, fail)
+        .finally(() => { if (my === token) { s.wordLoading = false; render(); } }));
+    }
+    if (s.sentLoading) {
+      jobs.push(translator.translateSentence(s.sentence).then((r) => { if (my === token) { s.sentTr = r.text; s.provider = r.provider; } }, fail)
+        .finally(() => { if (my === token) { s.sentLoading = false; render(); } }));
+    }
+    await Promise.all(jobs);
+    if (my === token) { render(); keepVisible(); }
+  }
+
   async function open(o) {
     const my = ++token;
-    s = { ...o, trList: [], newTr: null, sentTr: null, saved: false, inDict: false, errors: [], wordLoading: false, sentLoading: false };
+    s = { ...o, stored: [], newTr: null, sentTr: null, saved: false, inDict: false, refreshed: false, errors: [], wordLoading: false, sentLoading: false, provider: await translator.currentProvider() };
     el.hidden = false;
     const existing = await db.getWord(o.norm);
     if (my !== token) return;
     if (existing) {
       s.inDict = true;
-      s.trList = [...existing.translations];
+      s.stored = [...existing.translations];
       const same = existing.sentences.find((x) => x.en === o.sentence);
       if (same) { s.sentTr = same.ru; s.saved = true; }
     }
-    s.wordLoading = !s.trList.length;
+    s.wordLoading = !s.stored.length;
     s.sentLoading = s.sentTr == null;
     render();
     keepVisible();
+    await fetchTranslations(my);
+  }
 
-    const fail = (e) => { if (my === token) { s.errors.push(e.message || 'Ошибка перевода'); } };
-    const jobs = [];
-    if (s.wordLoading) {
-      jobs.push(translator.translateWord(o.norm).then((r) => { if (my === token) { s.trList = [r.text]; s.newTr = r.text; } }, fail)
-        .finally(() => { if (my === token) { s.wordLoading = false; render(); } }));
-    }
-    if (s.sentLoading) {
-      jobs.push(translator.translateSentence(o.sentence).then((r) => { if (my === token) s.sentTr = r.text; }, fail)
-        .finally(() => { if (my === token) { s.sentLoading = false; render(); } }));
-    }
-    await Promise.all(jobs);
-    if (my === token) { render(); keepVisible(); }
+  // ↻: переключаем переводчик (выбор запоминается) и переводим заново.
+  async function switchProvider() {
+    if (!s) return;
+    const my = ++token;
+    const cur = s;
+    cur.provider = await translator.switchProvider();
+    if (my !== token) return;
+    Object.assign(cur, { errors: [], newTr: null, sentTr: null, saved: false, refreshed: true, wordLoading: true, sentLoading: true });
+    render();
+    await fetchTranslations(my);
   }
 
   function close() { token++; el.hidden = true; el.innerHTML = ''; s = null; }
@@ -101,14 +125,19 @@ export function createPopup({ translator, onSaved }) {
   el.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]');
     if (!act || !s) return;
-    if (act.dataset.act === 'close') close();
-    else if (act.dataset.act === 'retry') { const o = s; close(); open({ norm: o.norm, shown: o.shown, sentence: o.sentence, relStart: o.relStart, relLen: o.relLen, bookId: o.bookId, anchor: o.anchor }); }
-    else if (act.dataset.act === 'save' && !s.saved) {
+    const a = act.dataset.act;
+    if (a === 'close') close();
+    else if (a === 'switch') switchProvider();
+    else if (a === 'retry') { const o = s; close(); open({ norm: o.norm, shown: o.shown, sentence: o.sentence, relStart: o.relStart, relLen: o.relLen, bookId: o.bookId, anchor: o.anchor }); }
+    else if (a === 'save' && !s.saved) {
       const cur = s;
       cur.saved = true; render();
       try {
-        await db.addSentence({ word: cur.norm, translation: cur.newTr, en: cur.sentence, ru: cur.sentTr, bookId: cur.bookId });
+        await db.addSentence({ word: cur.norm, translation: cur.newTr, en: cur.sentence, ru: cur.sentTr, bookId: cur.bookId, updateRu: cur.refreshed });
+        cur.stored = [...new Set([...cur.stored, ...(cur.newTr ? [cur.newTr] : [])])]; // теперь перевод «в словаре»
+        cur.inDict = true;
         onSaved(cur.norm);
+        if (s === cur) render();
       } catch (err) { cur.saved = false; cur.errors.push('Не удалось сохранить: ' + err.message); if (s === cur) render(); }
     }
   });

@@ -43,11 +43,12 @@ async function run(store, mode, fn) {
 export const getWord = (word) => run('words', 'readonly', (s) => s.get(word));
 export const getAllWords = () => run('words', 'readonly', (s) => s.getAll());
 export const putWord = (w) => run('words', 'readwrite', (s) => s.put({ ...w, updatedAt: Date.now() }));
+export const putWordExact = (w) => run('words', 'readwrite', (s) => s.put(w)); // без смены updatedAt (для импорта и синхронизации)
 export const deleteWord = (word) => run('words', 'readwrite', (s) => s.delete(word));
 
 // «Запомнить»: создаёт слово или добавляет к нему перевод и предложение.
 // Всё в одной транзакции. Одинаковые переводы и предложения не дублируются.
-export async function addSentence({ word, translation, en, ru, bookId = null }) {
+export async function addSentence({ word, translation, en, ru, bookId = null, updateRu = false }) {
   const d = await open();
   return new Promise((resolve, reject) => {
     const t = d.transaction('words', 'readwrite');
@@ -63,10 +64,11 @@ export async function addSentence({ word, translation, en, ru, bookId = null }) 
       }
       if (translation && !w.translations.includes(translation)) w.translations.push(translation);
       let added = false;
-      if (en && !w.sentences.some((x) => x.en === en)) {
+      const ex = en ? w.sentences.find((x) => x.en === en) : null;
+      if (en && !ex) {
         w.sentences.push({ en, ru: ru || '', bookId, addedAt: now });
         added = true;
-      }
+      } else if (ex && updateRu && ru) ex.ru = ru; // новый перевод уже сохранённого предложения
       w.updatedAt = now;
       s.put(w);
       out = { word: w, isNew, added };
@@ -96,6 +98,7 @@ export const setSetting = (key, value) => run('settings', 'readwrite', (s) => s.
 // ---------- Книги (используются с этапа 2) ----------
 // Книга: { id, title, chapters:[{title, text}], progress:{chapter, scroll}, addedAt }
 export const saveBook = (b) => run('books', 'readwrite', (s) => s.put({ addedAt: Date.now(), ...b }));
+export const getAllBooks = () => run('books', 'readonly', (s) => s.getAll());
 export const getBook = (id) => run('books', 'readonly', (s) => s.get(id));
 export async function renameBook(id, title) {
   const d = await open();
