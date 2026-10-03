@@ -3,6 +3,7 @@
 // «Повторить» -> «в процессе» и в конец списка.
 import * as db from '../core/db.js';
 import { tokenize, esc } from '../core/textUtils.js';
+import { ARROW_LEFT } from '../core/icons.js';
 import { activeQueue, markKnown, markRepeat, refreshArchive } from '../vocabulary/srs.js';
 
 const highlight = (sentence, word) => tokenize(sentence).map((t) => (t.type === 'word' && t.norm === word ? `<mark>${esc(t.text)}</mark>` : esc(t.text))).join('');
@@ -16,26 +17,27 @@ export async function startFlashcards(container, { reverse = false, onExit }) {
     const w = queue[0];
     sentence = w && w.sentences.length ? w.sentences[Math.floor(Math.random() * w.sentences.length)] : null;
   };
-  const sentenceHtml = (w) => (sentence ? `<div class="fc-sent">${highlight(sentence.en, w.word)}<div class="muted">${esc(sentence.ru)}</div></div>` : '');
+  const top = (right = '') => `<div class="fc-top"><button class="nav-btn" data-fc="exit" aria-label="Назад" title="Назад">${ARROW_LEFT}</button><span class="muted">${right}</span></div>`;
 
+  // Слово (или его перевод) всегда в одном и том же месте карточки: сверху; всё остальное — под ним.
   function render() {
     if (stopped) return;
     if (!queue.length) {
-      container.innerHTML = `<div class="fc"><div class="fc-top"><button class="icon-btn" data-fc="exit">←</button></div>
-        <div class="fc-card">${started ? `<div><b>Готово!</b><div class="muted">Знаю: ${known} · Повторить: ${repeat}</div></div>`
-          : '<div class="muted">Нет слов для повторения: все слова изучены или лежат в архиве</div>'}</div>
+      container.innerHTML = `<div class="fc">${top()}
+        <div class="fc-card"><div class="fc-word">${started ? 'Готово!' : ''}</div><div class="fc-under muted">${started
+          ? `Знаю: ${known} · Повторить: ${repeat}` : 'Нет слов для повторения: все слова изучены или лежат в архиве'}</div></div>
         <div class="fc-btns"><button class="btn" data-fc="exit">К счётчикам</button></div></div>`;
       return;
     }
     const w = queue[0];
     const trs = esc(w.translations.join(', '));
     const front = reverse ? trs : esc(w.word);
-    const back = reverse ? `<b>${esc(w.word)}</b>` : trs;
-    container.innerHTML = `<div class="fc">
-      <div class="fc-top"><button class="icon-btn" data-fc="exit" aria-label="Назад">←</button><span class="muted">Осталось: ${queue.length}</span></div>
-      <div class="fc-card" data-fc="flip">${flipped
-        ? `<div><div class="fc-word">${back}</div>${sentenceHtml(w)}</div>`
-        : `<div><div class="fc-word">${front}</div><div class="muted small">Нажмите, чтобы увидеть ${reverse ? 'слово' : 'перевод'}</div></div>`}</div>
+    const back = reverse ? esc(w.word) : trs;
+    const sent = sentence ? `<div class="fc-sent">${highlight(sentence.en, w.word)}<div class="muted">${esc(sentence.ru)}</div></div>` : '';
+    container.innerHTML = `<div class="fc">${top(`Осталось: ${queue.length}`)}
+      <div class="fc-card" data-fc="flip">
+        <div class="fc-word">${flipped ? back : front}</div>
+        <div class="fc-under">${flipped ? sent : `<span class="muted small">Нажмите, чтобы увидеть ${reverse ? 'слово' : 'перевод'}</span>`}</div></div>
       <div class="fc-btns">${flipped ? '<button class="btn ghost" data-fc="repeat">Повторить</button><button class="btn" data-fc="know">Знаю</button>' : ''}</div></div>`;
   }
 

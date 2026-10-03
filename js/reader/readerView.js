@@ -3,6 +3,7 @@ import * as db from '../core/db.js';
 import { loadFile } from './fileLoader.js';
 import { tokenize, splitSentences, sentenceAt, esc } from '../core/textUtils.js';
 import { createPopup } from './wordPopup.js';
+import { ARROW_LEFT, CHEVRON_LEFT, CHEVRON_RIGHT } from '../core/icons.js';
 
 // Как открывать слово: 'double' — двойной клик/тап, 'single' — одиночный.
 export const CLICK_MODE = 'double';
@@ -84,10 +85,10 @@ export function mountReader(container, { translator }) {
     container.onclick = null;
     container.innerHTML = `
       <div class="rbar">
-        <button class="icon-btn" id="back" title="В библиотеку">←</button>
-        <button class="icon-btn" id="prev" title="Предыдущая глава">‹</button>
+        <button class="nav-btn" id="back" title="В библиотеку" aria-label="В библиотеку">${ARROW_LEFT}</button>
+        <button class="nav-btn" id="prev" title="Предыдущая глава" aria-label="Предыдущая глава">${CHEVRON_LEFT}</button>
         <select id="chsel">${book.chapters.map((c, i) => `<option value="${i}">${esc(c.title)}</option>`).join('')}</select>
-        <button class="icon-btn" id="next" title="Следующая глава">›</button>
+        <button class="nav-btn" id="next" title="Следующая глава" aria-label="Следующая глава">${CHEVRON_RIGHT}</button>
       </div>
       <article id="text"></article>`;
     container.querySelector('#back').onclick = showLibrary;

@@ -1,6 +1,7 @@
 // studyView.js — раздел «Учить»: счётчики и запуск игр.
 import { renderStats } from '../vocabulary/statsPanel.js';
 import { startFlashcards } from './flashcards.js';
+import { startQuiz } from './quiz.js';
 
 export function mountStudy(container) {
   let stop = null;
@@ -10,12 +11,14 @@ export function mountStudy(container) {
       <div class="games">
         <button class="btn game" data-g="cards">Карточки</button>
         <button class="btn game" data-g="rcards">Карточки наоборот</button>
-        <button class="btn game" disabled>Квиз (скоро)</button>
+        <button class="btn game" data-g="quiz">Квиз</button>
       </div>`;
     await renderStats(container.querySelector('#stats'));
     container.onclick = async (e) => {
       const g = e.target.closest('[data-g]');
-      if (g) { container.onclick = null; stop = await startFlashcards(container, { reverse: g.dataset.g === 'rcards', onExit: home }); }
+      if (!g) return;
+      container.onclick = null;
+      stop = g.dataset.g === 'quiz' ? await startQuiz(container, { onExit: home }) : await startFlashcards(container, { reverse: g.dataset.g === 'rcards', onExit: home });
     };
   }
   home();
