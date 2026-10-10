@@ -1,7 +1,7 @@
 // textUtils.js — что считать словом и как делить текст на предложения.
 
 // Слово: латинские буквы; внутри допускаются ' ’ - между буквами (don't, well-known).
-const WORD_RE = /[A-Za-z]+(?:['’-][A-Za-z]+)*/g;
+export const WORD_RE = /[A-Za-z]+(?:['’-][A-Za-z]+)*/g;
 
 // Нормализация: нижний регистр, ’ -> ', отрезаем 's (John's -> john, it's -> it).
 export function normalizeWord(raw) {

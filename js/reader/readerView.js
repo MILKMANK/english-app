@@ -1,6 +1,6 @@
 // readerView.js — раздел «Чтение»: библиотека книг и читалка с кликабельными словами.
 import * as db from '../core/db.js';
-import { loadFile } from './fileLoader.js';
+import { renderLibrary, countWords } from './library.js';
 import { tokenize, splitSentences, sentenceAt, esc } from '../core/textUtils.js';
 import { createPopup } from './wordPopup.js';
 import { ARROW_LEFT, CHEVRON_LEFT, CHEVRON_RIGHT } from '../core/icons.js';
@@ -8,8 +8,6 @@ import { ARROW_LEFT, CHEVRON_LEFT, CHEVRON_RIGHT } from '../core/icons.js';
 // Как открывать слово: 'double' — двойной клик/тап, 'single' — одиночный.
 export const CLICK_MODE = 'double';
 const DOUBLE_MS = 350;
-const PENCIL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>';
-const TRASH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>';
 
 export function mountReader(container, { translator }) {
   let book = null, chapter = 0, paras = [], spans = new Map(), known = new Map();
@@ -18,60 +16,16 @@ export function mountReader(container, { translator }) {
   const popup = createPopup({ translator, onSaved: (norm) => {
     known.set(norm, true);
     (spans.get(norm) || []).forEach((sp) => sp.classList.add('k', 'kb'));
+    if (book && chapter === book.chapters.length - 1) paintEnd(); // обновить счётчик в конце книги
   } });
 
   // ---------- библиотека ----------
   async function showLibrary() {
     await db.setSetting('currentBook', null);
     popup.close();
-    const books = (await db.listBooks()).sort((a, b) => b.addedAt - a.addedAt);
-    const rows = [];
-    for (const b of books) {
-      const pr = await db.getSetting('progress:' + b.id, null);
-      rows.push(`<div class="card book" data-open="${b.id}">
-        <div><b>${esc(b.title)}</b><div class="muted">глав: ${b.chapterCount}${pr ? ` · остановились на гл. ${pr.chapter + 1}` : ''}</div></div>
-        <div class="word-actions"><button class="icon-btn" data-rename="${b.id}" title="Изменить название" aria-label="Изменить название">${PENCIL}</button>
-        <button class="icon-btn" data-delbook="${b.id}" title="Удалить книгу" aria-label="Удалить книгу">${TRASH}</button></div></div>`);
-    }
-    container.innerHTML = `<h1>Чтение</h1>
-      <label class="btn">Загрузить книгу<input id="file" type="file" accept=".epub,.txt,.docx" hidden></label>
-      <p class="muted">EPUB, TXT или DOCX. Книга сохраняется на этом устройстве.</p>
-      <div id="msg"></div>${rows.join('') || '<p class="muted">Пока нет книг.</p>'}`;
-    container.querySelector('#file').onchange = onFile;
-    container.onclick = async (e) => {
-      const ren = e.target.closest('[data-rename]');
-      if (ren) {
-        const id = +ren.dataset.rename;
-        const b = books.find((x) => x.id === id);
-        const name = prompt('Название книги', b ? b.title : '');
-        if (name && name.trim()) { await db.renameBook(id, name.trim()); showLibrary(); }
-        return;
-      }
-      const del = e.target.closest('[data-delbook]');
-      if (del) {
-        const id = +del.dataset.delbook;
-        const b = books.find((x) => x.id === id);
-        if (confirm(`Удалить книгу «${b ? b.title : ''}»? Слова из словаря останутся.`)) { await db.deleteBook(id); showLibrary(); }
-        return;
-      }
-      const open = e.target.closest('[data-open]');
-      if (open) openBook(+open.dataset.open);
-    };
-  }
-
-  async function onFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const msg = container.querySelector('#msg');
-    msg.innerHTML = '<p class="muted">Обрабатываю файл…</p>';
-    try {
-      const { title, chapters } = await loadFile(file);
-      const id = await db.saveBook({ title, chapters });
-      await db.setSetting('progress:' + id, { chapter: 0, para: 0 });
-      await openBook(id);
-    } catch (err) {
-      msg.innerHTML = `<p class="err">${esc(err.message)}</p>`;
-    }
+    book = null;
+    window.scrollTo(0, 0);
+    await renderLibrary(container, { openBook });
   }
 
   // ---------- читалка ----------
@@ -79,6 +33,7 @@ export function mountReader(container, { translator }) {
     book = await db.getBook(id);
     if (!book) return showLibrary();
     await db.setSetting('currentBook', id);
+    if (book.status !== 'reading' && book.status !== 'read') { book.status = 'reading'; await db.updateBook(id, { status: 'reading' }); } // открыли — значит читаем
     known = new Map();
     for (const w of await db.getAllWords()) known.set(w.word, w.sentences.some((s) => s.bookId === id));
     const pr = await db.getSetting('progress:' + id, { chapter: 0, para: 0 });
@@ -124,9 +79,11 @@ export function mountReader(container, { translator }) {
     }).join('');
     const last = i === book.chapters.length - 1;
     const text = container.querySelector('#text');
-    text.innerHTML = `<h2 class="ch">${esc(c.title)}</h2>${html}${last ? '' : '<button class="btn" id="nextBottom">Следующая глава →</button>'}`;
+    const endBlock = `<div class="book-end"><div class="muted small" id="endStats"></div><button class="read-btn" id="readBtn"></button><div class="muted small" id="readHint"></div></div>`;
+    text.innerHTML = `<h2 class="ch">${esc(c.title)}</h2>${html}${last ? endBlock : '<button class="btn" id="nextBottom">Следующая глава →</button>'}`;
     const nb = text.querySelector('#nextBottom');
     if (nb) nb.onclick = () => goChapter(chapter + 1);
+    if (last) paintEnd();
     container.querySelector('#chsel').value = String(i);
     spans = new Map();
     text.querySelectorAll('.w').forEach((sp) => {
@@ -139,6 +96,24 @@ export function mountReader(container, { translator }) {
       const el = text.querySelector(`p[data-p="${startPara}"]`);
       if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - barHeight() - 8);
     }
+  }
+
+  // Блок в конце книги: счётчики слов и кнопка «Прочитано» (повторное нажатие возвращает «в процессе»).
+  function paintEnd() {
+    const btn = container.querySelector('#readBtn');
+    if (!btn) return;
+    if (book.wordCount == null) { book.wordCount = countWords(book.chapters); db.updateBook(book.id, { wordCount: book.wordCount }); }
+    const inDict = [...known.values()].filter(Boolean).length;
+    container.querySelector('#endStats').textContent = `Слов в книге: ${book.wordCount.toLocaleString('ru-RU')} · добавлено в словарь: ${inDict}`;
+    const done = book.status === 'read';
+    btn.textContent = done ? '✓ Прочитано' : 'Прочитано';
+    btn.classList.toggle('done', done);
+    container.querySelector('#readHint').textContent = done ? 'Нажмите ещё раз, чтобы вернуть «В процессе»' : '';
+    btn.onclick = async () => {
+      book.status = book.status === 'read' ? 'reading' : 'read';
+      await db.updateBook(book.id, { status: book.status });
+      paintEnd();
+    };
   }
 
   const barHeight = () => { const b = container.querySelector('.rbar'); return b ? b.offsetHeight : 0; };

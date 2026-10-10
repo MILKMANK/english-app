@@ -1,6 +1,7 @@
 // backup.js — резервная копия (слова, книги, позиции чтения) и слияние данных.
 // mergeWord пригодится и для синхронизации через Dropbox.
 import * as db from './db.js';
+import { deliverFile } from './download.js';
 
 // Склеивает две версии одного слова: переводы и предложения объединяются,
 // статус и архив берутся у версии, изменённой позже.
@@ -60,18 +61,8 @@ export async function restoreFromFile(file) {
   return importBackup(data);
 }
 
-// Скачивает копию. На iPhone открывает меню «Поделиться» (сохранить в Файлы), на компьютере — обычная загрузка.
+// Скачивает копию (см. download.js).
 export async function downloadBackup() {
   const name = `english-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  const file = new File([JSON.stringify(await buildBackup())], name, { type: 'application/json' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return 'shared'; }
-    catch (e) { if (e.name === 'AbortError') return 'cancelled'; }
-  }
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return 'downloaded';
+  return deliverFile(new File([JSON.stringify(await buildBackup())], name, { type: 'application/json' }));
 }

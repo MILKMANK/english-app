@@ -1,5 +1,5 @@
 // fileLoader.js — EPUB / TXT / DOCX -> { title, chapters: [{ title, text }] }, абзацы в text разделены "\n\n".
-import { readZip } from './zip.js';
+import { readZip } from '../core/zip.js';
 import { splitSentences } from '../core/textUtils.js';
 
 const MAX_WORDS = 4000;  // глава длиннее режется

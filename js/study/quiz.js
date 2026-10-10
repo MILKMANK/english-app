@@ -1,123 +1,102 @@
-// quiz.js — квиз: предложение с пропуском и 4 варианта слова (2×2).
-// Вопросы — слова списка 1 (не в архиве). Верно: слово «изучено» + архив на месяц.
-// Неверно: и правильное, и выбранное по ошибке слово становятся «в процессе» и уходят в конец списка 1.
-// После ответа внизу появляется шторка с результатом и переводами; текст вопроса при этом не двигается.
+// quiz.js — «Квиз» (слово → выбрать из 4 переводов) и «Квиз наоборот» (русское слово → выбрать из 4 английских).
+// Дизайн как у «Контекста»: слово сверху, кнопки 2×2, шторка с результатом. Статусы — общие правила (shared.js).
 import * as db from '../core/db.js';
 import { tokenize, esc } from '../core/textUtils.js';
-import { markTranslation, markTranslationAny } from '../core/translator.js';
-import { ARROW_LEFT } from '../core/icons.js';
-import { activeQueue, markKnown, markRepeat, refreshArchive } from '../vocabulary/srs.js';
+import { markTranslationAny } from '../core/translator.js';
+import { activeQueue, refreshArchive } from '../vocabulary/srs.js';
+import { orderTranslations } from './context.js';
+import { CHECK, CROSS, shuffle, topBar, messageScreen, block, sheet, applyAnswer } from './shared.js';
 
-export const BLANK = '_____';
-export const MIN_WORDS = 4; // правильный ответ + 3 неверных
-const MAX_TR = 3;           // сколько переводов показывать в шторке
+export const MIN_WORDS = 4;
 
-// Предложение с пропуском вместо слова (простой текст); null, если слова в предложении нет.
-export function blankSentence(en, word) {
-  let found = false;
-  const text = tokenize(en).map((t) => { if (t.type === 'word' && t.norm === word) { found = true; return BLANK; } return t.text; }).join('');
-  return found ? text : null;
-}
-// Первые три перевода; первым идёт тот, который употреблён в переводе предложения.
-export function orderTranslations(translations, ru, limit = MAX_TR) {
-  const variants = [...new Set(translations.flatMap((t) => t.split(/[,;]/)).map((x) => x.trim()).filter(Boolean))];
-  const used = ru ? variants.find((v) => markTranslation(ru, v)) : null;
-  return (used ? [used, ...variants.filter((v) => v !== used)] : variants).slice(0, limit);
-}
+// Варианты перевода слова (запись может содержать список через запятую).
+export const variantsOf = (w) => [...new Set(w.translations.flatMap((t) => t.split(/[,;]/)).map((x) => x.trim()).filter(Boolean))];
+export const labelOf = (w) => variantsOf(w)[0];
+const lower = (a) => a.map((x) => x.toLowerCase());
+// Слова, у которых есть общий перевод, путать нельзя: в одном вопросе они не встречаются вместе.
+const conflict = (a, b) => { const va = lower(variantsOf(a)); return lower(variantsOf(b)).some((x) => va.includes(x)); };
 
-const sentHtml = (en, word, fn) => tokenize(en).map((t) => (t.type === 'word' && t.norm === word ? fn(t) : esc(t.text))).join('');
-const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
-const usableSentences = (w) => w.sentences.filter((s) => blankSentence(s.en, w.word));
-const CHECK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
-const CROSS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-
-function buildQuestion(w, all) {
-  const sents = usableSentences(w);
-  const sentence = sents[Math.floor(Math.random() * sents.length)];
-  const inSentence = new Set(tokenize(sentence.en).filter((t) => t.type === 'word').map((t) => t.norm));
-  const others = all.filter((x) => x.word !== w.word);
-  const pref = others.filter((x) => !inSentence.has(x.word)); // чтобы неверный вариант не стоял в самом предложении
-  const wrong = shuffle(pref.length >= 3 ? pref : others).slice(0, 3).map((x) => x.word);
-  return { word: w.word, sentence, options: shuffle([w.word, ...wrong]), longestWrong: wrong.reduce((a, b) => (b.length > a.length ? b : a), '') };
+// Три неверных варианта для слова w (в прямом квизе подписи должны быть разными).
+export function pickDistractors(w, all, reverse) {
+  const pool = shuffle(all.filter((x) => x.word !== w.word && variantsOf(x).length && !conflict(w, x)));
+  const out = [], seen = new Set([labelOf(w).toLowerCase()]);
+  for (const x of pool) {
+    const key = reverse ? x.word : labelOf(x).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key); out.push(x);
+    if (out.length === 3) return out;
+  }
+  return null; // не хватает разных слов
 }
 
-export async function startQuiz(container, { onExit }) {
+const sentHtml = (en, word) => tokenize(en).map((t) => (t.type === 'word' && t.norm === word ? `<b class="g">${esc(t.text)}</b>` : esc(t.text))).join('');
+
+export async function startQuiz(container, { reverse = false, onExit }) {
   await refreshArchive();
-  const all = await db.getAllWords();
-  const queue = activeQueue(all).filter((w) => usableSentences(w).length);
+  const all = (await db.getAllWords()).filter((w) => variantsOf(w).length);
+  const queue = activeQueue(all).filter((w) => pickDistractors(w, all, reverse));
   let q = null, answered = null, busy = false, started = queue.length > 0, right = 0, wrong = 0, stopped = false;
   const byWord = (word) => all.find((x) => x.word === word);
-  const top = (t = '') => `<div class="fc-top"><button class="nav-btn" data-fc="exit" aria-label="Назад" title="Назад">${ARROW_LEFT}</button><span class="muted">${t}</span></div>`;
-  const message = (title, text) => `<div class="fc">${top()}<div class="fc-card"><div class="fc-word">${title}</div><div class="fc-under muted">${text}</div></div>
-    <div class="fc-btns"><button class="btn" data-fc="exit">К счётчикам</button></div></div>`;
-  const block = (icon, cls, label, word, tr) => `<div class="qz-cmp ${cls}">${icon}<div><small>${label}</small><b>${esc(word)}</b> — ${esc(tr)}</div></div>`;
 
   function render() {
     if (stopped) return;
-    if (all.length < MIN_WORDS) { container.innerHTML = message('', `Для квиза нужно минимум ${MIN_WORDS} слова в словаре (сейчас ${all.length})`); return; }
+    if (all.length < MIN_WORDS) { container.innerHTML = messageScreen('', `Для квиза нужно минимум ${MIN_WORDS} слова с переводами (сейчас ${all.length})`); return; }
     if (!q) {
-      container.innerHTML = message(started ? 'Готово!' : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
-        : 'Нет слов для квиза: все слова изучены, лежат в архиве или у них нет подходящих предложений');
+      container.innerHTML = messageScreen(started ? 'Готово!' : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
+        : 'Нет слов для квиза: все слова изучены, лежат в архиве или у них нет достаточно разных переводов');
       return;
     }
-    const { word, sentence } = q;
-    // В зоне предложения невидимо лежит самая длинная версия (с зачёркнутой ошибкой): высота зоны не меняется при ответе.
-    const ghost = sentHtml(sentence.en, word, (t) => `<s class="rd">${esc(q.longestWrong)}</s> <b class="g">${esc(t.text)}</b>`); // те же стили, что у настоящего ответа
-    let cur, ruHtml = '', bot;
+    const w = byWord(q.word);
+    const shownWord = reverse ? labelOf(w) : w.word; // что показываем сверху
+    let ex = '', bot;
     if (!answered) {
-      cur = sentHtml(sentence.en, word, () => `<span class="blank">${BLANK}</span>`);
-      bot = `<div class="qz-opts">${q.options.map((o) => `<button class="btn ghost" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>`;
+      bot = `<div class="qz-opts">${q.options.map((o, i) => `<button class="btn ghost" data-opt="${i}">${esc(o.text)}</button>`).join('')}</div>`;
     } else {
-      const ok = answered.chosen === q.word;
-      cur = sentHtml(sentence.en, word, (t) => (ok ? '' : `<s class="rd">${esc(answered.chosen)}</s> `) + `<b class="g">${esc(t.text)}</b>`);
-      const m = markTranslationAny(sentence.ru, byWord(word).translations);
-      ruHtml = m ? esc(sentence.ru.slice(0, m.start)) + '<b class="g">' + esc(sentence.ru.slice(m.start, m.end)) + '</b>' + esc(sentence.ru.slice(m.end)) : esc(sentence.ru);
-      const good = block(CHECK, 'ok', ok ? 'Перевод' : 'Правильно', word, orderTranslations(byWord(word).translations, sentence.ru).join(', '));
-      const bad = ok ? '' : block(CROSS, 'bad', 'Вы выбрали', answered.chosen, orderTranslations(byWord(answered.chosen).translations, null).join(', '));
-      bot = `<div class="qz-sheet ${ok ? 'ok' : 'bad'}"><div class="qz-head ${ok ? 'g' : 'rd'}"><span class="qdot"></span>${ok ? 'Верно!' : 'Неверно'}</div>
-        <div class="qz-cmps">${bad}${good}</div><button class="btn qz-next" data-fc="next">Дальше</button></div>`;
+      const ok = answered.index === q.correct;
+      const chosen = q.options[answered.index];
+      const cw = byWord(chosen.word);
+      // прямой квиз: «перевод — слово», сначала то, что выбрано; наоборот: «слово — переводы»
+      const fmt = (word, label) => (reverse ? `<b>${esc(word.word)}</b> — ${esc(orderTranslations(word.translations, null).join(', '))}` : `<b>${esc(label)}</b> — ${esc(word.word)}`);
+      const good = block(CHECK, 'ok', ok ? 'Перевод' : 'Правильно', fmt(w, labelOf(w)));
+      const bad = ok ? '' : block(CROSS, 'bad', 'Вы выбрали', fmt(cw, chosen.text));
+      bot = sheet(ok, bad + good);
+      if (q.sentence) {
+        const m = markTranslationAny(q.sentence.ru, w.translations);
+        const ru = m ? esc(q.sentence.ru.slice(0, m.start)) + '<b class="g">' + esc(q.sentence.ru.slice(m.start, m.end)) + '</b>' + esc(q.sentence.ru.slice(m.end)) : esc(q.sentence.ru);
+        ex = `<div class="qz-ex">${sentHtml(q.sentence.en, w.word)}<div class="ru">${ru}</div></div>`;
+      }
     }
-    container.innerHTML = `<div class="fc">${top(`Осталось: ${queue.length}`)}
-      <div class="qz-mid"><div class="qz-qs"><span class="gh">${ghost}</span><span class="re">${cur}</span></div><div class="qz-qr">${ruHtml}</div></div>
+    container.innerHTML = `<div class="fc">${topBar(`Осталось: ${queue.length}`)}
+      <div class="qz-mid"><div class="qz-word">${esc(shownWord)}</div>${ex}</div>
       <div class="qz-bot">${bot}</div></div>`;
   }
 
   function next() {
-    q = queue.length ? buildQuestion(queue[0], all) : null;
+    if (!queue.length) q = null;
+    else {
+      const w = queue[0];
+      const wrongs = pickDistractors(w, all, reverse);
+      const options = shuffle([w, ...wrongs]).map((x) => ({ word: x.word, text: reverse ? x.word : labelOf(x) }));
+      q = { word: w.word, options, correct: options.findIndex((o) => o.word === w.word), sentence: w.sentences.length ? w.sentences[Math.floor(Math.random() * w.sentences.length)] : null };
+    }
     answered = null;
     render();
   }
 
-  async function choose(opt) {
-    if (busy || answered || !q) return;
+  async function choose(i) {
+    if (busy || answered || !q || !q.options[i]) return;
     busy = true;
     try {
-      const head = queue.shift();
-      const fresh = (await db.getWord(q.word)) || head;
-      if (opt === q.word) {
-        await db.putWord(markKnown(fresh));
-        right++;
-      } else {
-        const upd = markRepeat(fresh);
-        await db.putWord(upd);
-        queue.push(upd); // слово сразу в конец списка 1
-        wrong++;
-        const picked = await db.getWord(opt); // выбранное по ошибке слово тоже становится «в процессе»
-        if (picked) {
-          const u2 = markRepeat(picked);
-          await db.putWord(u2);
-          const i = queue.findIndex((x) => x.word === opt);
-          if (i >= 0) { queue.splice(i, 1); queue.push(u2); }
-        }
-      }
-      answered = { chosen: opt };
+      const ok = await applyAnswer(queue, q.word, q.options[i].word);
+      if (ok) right++; else wrong++;
+      answered = { index: i };
       render();
     } finally { busy = false; }
   }
 
   container.onclick = (e) => {
     const o = e.target.closest('[data-opt]');
-    if (o) return choose(o.dataset.opt);
+    if (o) return choose(+o.dataset.opt);
     const a = e.target.closest('[data-fc]');
     if (!a) return;
     if (a.dataset.fc === 'next') next();
@@ -125,7 +104,7 @@ export async function startQuiz(container, { onExit }) {
   };
   const onKey = (e) => {
     if (answered && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); next(); }
-    else if (!answered && q && /^[1-4]$/.test(e.key)) choose(q.options[+e.key - 1]);
+    else if (!answered && q && /^[1-4]$/.test(e.key)) choose(+e.key - 1);
   };
   document.addEventListener('keydown', onKey);
   function stop() { stopped = true; document.removeEventListener('keydown', onKey); container.onclick = null; }

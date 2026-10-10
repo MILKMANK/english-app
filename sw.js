@@ -1,8 +1,36 @@
 // sw.js — офлайн-режим. Сначала сеть (чтобы обновления доходили сразу), при её отсутствии — кэш.
-const CACHE = 'english-v7';
-const ASSETS = ['./', 'index.html', 'manifest.json', 'css/styles.css', 'js/main.js',
-  'js/core/db.js', 'js/core/textUtils.js', 'js/core/translator.js', 'js/core/seed.js', 'js/vocabulary/wordsTable.js', 'js/vocabulary/srs.js', 'js/vocabulary/statsPanel.js',
-  'js/core/backup.js', 'js/core/icons.js', 'js/study/quiz.js', 'js/study/flashcards.js', 'js/study/studyView.js', 'js/reader/zip.js', 'js/reader/fileLoader.js', 'js/reader/readerView.js', 'js/reader/wordPopup.js'];
+const CACHE = 'english-v8';
+const ASSETS = [
+  './',
+  'index.html',
+  'manifest.json',
+  'css/styles.css',
+  'js/main.js',
+  'js/core/db.js',
+  'js/core/textUtils.js',
+  'js/core/translator.js',
+  'js/core/seed.js',
+  'js/core/backup.js',
+  'js/core/icons.js',
+  'js/core/ui.js',
+  'js/core/zip.js',
+  'js/core/xlsx.js',
+  'js/core/download.js',
+  'js/vocabulary/wordsTable.js',
+  'js/vocabulary/srs.js',
+  'js/vocabulary/statsPanel.js',
+  'js/vocabulary/importExport.js',
+  'js/reader/fileLoader.js',
+  'js/reader/library.js',
+  'js/reader/readerView.js',
+  'js/reader/wordPopup.js',
+  'js/study/studyView.js',
+  'js/study/flashcards.js',
+  'js/study/quiz.js',
+  'js/study/context.js',
+  'js/study/shared.js',
+  'js/settings/settingsView.js',
+];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

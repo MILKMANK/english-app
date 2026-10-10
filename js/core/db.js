@@ -48,7 +48,7 @@ export const deleteWord = (word) => run('words', 'readwrite', (s) => s.delete(wo
 
 // «Запомнить»: создаёт слово или добавляет к нему перевод и предложение.
 // Всё в одной транзакции. Одинаковые переводы и предложения не дублируются.
-export async function addSentence({ word, translation, en, ru, bookId = null, updateRu = false }) {
+export async function addSentence({ word, translation, translations = [], en, ru, bookId = null, updateRu = false }) {
   const d = await open();
   return new Promise((resolve, reject) => {
     const t = d.transaction('words', 'readwrite');
@@ -62,7 +62,7 @@ export async function addSentence({ word, translation, en, ru, bookId = null, up
       if (isNew) {
         w = { word, translations: [], sentences: [], status: 'new', archivedUntil: null, createdAt: now, updatedAt: now };
       }
-      if (translation && !w.translations.includes(translation)) w.translations.push(translation);
+      for (const t of [translation, ...translations]) if (t && !w.translations.includes(t)) w.translations.push(t);
       let added = false;
       const ex = en ? w.sentences.find((x) => x.en === en) : null;
       if (en && !ex) {
@@ -100,18 +100,20 @@ export const setSetting = (key, value) => run('settings', 'readwrite', (s) => s.
 export const saveBook = (b) => run('books', 'readwrite', (s) => s.put({ addedAt: Date.now(), ...b }));
 export const getAllBooks = () => run('books', 'readonly', (s) => s.getAll());
 export const getBook = (id) => run('books', 'readonly', (s) => s.get(id));
-export async function renameBook(id, title) {
+// Меняет поля книги (название, статус, счётчик слов) без потери глав.
+export async function updateBook(id, patch) {
   const d = await open();
   return new Promise((resolve, reject) => {
     const t = d.transaction('books', 'readwrite');
     const s = t.objectStore('books');
     const g = s.get(id);
-    g.onsuccess = () => { if (g.result) s.put({ ...g.result, title }); };
+    g.onsuccess = () => { if (g.result) s.put({ ...g.result, ...patch }); };
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error);
   });
 }
+export const renameBook = (id, title) => updateBook(id, { title });
 export const deleteBook = (id) => run('books', 'readwrite', (s) => s.delete(id));
 export async function listBooks() {
   const all = await run('books', 'readonly', (s) => s.getAll());
