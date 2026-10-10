@@ -60,7 +60,7 @@ export async function addSentence({ word, translation, translations = [], en, ru
       let w = g.result;
       const isNew = !w;
       if (isNew) {
-        w = { word, translations: [], sentences: [], status: 'new', archivedUntil: null, createdAt: now, updatedAt: now };
+        w = { word, translations: [], sentences: [], status: 'new', level: 0, credits: [], due: 0, archivedUntil: null, createdAt: now, updatedAt: now };
       }
       for (const t of [translation, ...translations]) if (t && !w.translations.includes(t)) w.translations.push(t);
       let added = false;

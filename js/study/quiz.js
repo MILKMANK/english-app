@@ -3,7 +3,7 @@
 import * as db from '../core/db.js';
 import { tokenize, esc } from '../core/textUtils.js';
 import { markTranslationAny } from '../core/translator.js';
-import { activeQueue, refreshArchive } from '../vocabulary/srs.js';
+import { buildBatch, today, refreshArchive } from '../vocabulary/srs.js';
 import { orderTranslations } from './context.js';
 import { CHECK, CROSS, shuffle, topBar, messageScreen, block, sheet, applyAnswer } from './shared.js';
 
@@ -32,18 +32,24 @@ export function pickDistractors(w, all, reverse) {
 const sentHtml = (en, word) => tokenize(en).map((t) => (t.type === 'word' && t.norm === word ? `<b class="g">${esc(t.text)}</b>` : esc(t.text))).join('');
 
 export async function startQuiz(container, { reverse = false, onExit }) {
-  await refreshArchive();
-  const all = (await db.getAllWords()).filter((w) => variantsOf(w).length);
-  const queue = activeQueue(all).filter((w) => pickDistractors(w, all, reverse));
-  let q = null, answered = null, busy = false, started = queue.length > 0, right = 0, wrong = 0, stopped = false;
+  const mode = reverse ? 'rquiz' : 'quiz';
+  let all = [], queue = [], counts = new Map();
+  let q = null, answered = null, busy = false, started = false, more = false, right = 0, wrong = 0, stopped = false;
+  const canAsk = (w) => !!pickDistractors(w, all, reverse);
+  async function reload() {
+    await refreshArchive();
+    all = (await db.getAllWords()).filter((w) => variantsOf(w).length);
+    queue = buildBatch(all, mode, today(), canAsk);
+    counts = new Map(); started = queue.length > 0; more = false; right = 0; wrong = 0;
+  }
   const byWord = (word) => all.find((x) => x.word === word);
 
   function render() {
     if (stopped) return;
     if (all.length < MIN_WORDS) { container.innerHTML = messageScreen('', `Для квиза нужно минимум ${MIN_WORDS} слова с переводами (сейчас ${all.length})`); return; }
     if (!q) {
-      container.innerHTML = messageScreen(started ? 'Готово!' : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
-        : 'Нет слов для квиза: все слова изучены, лежат в архиве или у них нет достаточно разных переводов');
+      container.innerHTML = messageScreen(started ? (more ? 'Порция пройдена!' : 'На сегодня всё') : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
+        : 'Нет слов для повторения сегодня в этом режиме', more);
       return;
     }
     const w = byWord(q.word);
@@ -71,8 +77,8 @@ export async function startQuiz(container, { reverse = false, onExit }) {
       <div class="qz-bot">${bot}</div></div>`;
   }
 
-  function next() {
-    if (!queue.length) q = null;
+  async function next() {
+    if (!queue.length) { q = null; more = buildBatch(all, mode, today(), canAsk).length > 0; }
     else {
       const w = queue[0];
       const wrongs = pickDistractors(w, all, reverse);
@@ -87,7 +93,7 @@ export async function startQuiz(container, { reverse = false, onExit }) {
     if (busy || answered || !q || !q.options[i]) return;
     busy = true;
     try {
-      const ok = await applyAnswer(queue, q.word, q.options[i].word);
+      const ok = await applyAnswer(queue, counts, q.word, q.options[i].word, mode);
       if (ok) right++; else wrong++;
       answered = { index: i };
       render();
@@ -100,6 +106,7 @@ export async function startQuiz(container, { reverse = false, onExit }) {
     const a = e.target.closest('[data-fc]');
     if (!a) return;
     if (a.dataset.fc === 'next') next();
+    else if (a.dataset.fc === 'more') { reload().then(next); }
     else if (a.dataset.fc === 'exit') { stop(); onExit(); }
   };
   const onKey = (e) => {
@@ -109,6 +116,7 @@ export async function startQuiz(container, { reverse = false, onExit }) {
   document.addEventListener('keydown', onKey);
   function stop() { stopped = true; document.removeEventListener('keydown', onKey); container.onclick = null; }
 
-  next();
+  await reload();
+  await next();
   return stop;
 }

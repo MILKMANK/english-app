@@ -12,3 +12,17 @@ export const CLOSE = svg('<path d="M6 6l12 12M18 6L6 18"/>', 14, 2.6);
 export const PLUS = svg('<path d="M12 5v14M5 12h14"/>', 18, 2.5);
 export const PENCIL = svg('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>');
 export const TRASH = svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>');
+
+// Кружок ступени слова: 6 частей, закрашено столько, какая ступень (1 день · 3 · 7 · 14 · 30 · освоено).
+const LV_COLOR = (l) => (l <= 2 ? '#f59e0b' : l <= 4 ? '#84cc16' : '#22c55e');
+export function levelCircle(level, size = 22) {
+  const c = size / 2, r = c - 1.5, g = 0.07;
+  let s = '';
+  for (let k = 0; k < 6; k++) {
+    const a0 = -Math.PI / 2 + k * Math.PI / 3 + g, a1 = -Math.PI / 2 + (k + 1) * Math.PI / 3 - g;
+    const p = (a) => [(c + r * Math.cos(a)).toFixed(2), (c + r * Math.sin(a)).toFixed(2)];
+    const [x0, y0] = p(a0), [x1, y1] = p(a1), on = k < level;
+    s += `<path d="M${c} ${c} L${x0} ${y0} A${r} ${r} 0 0 1 ${x1} ${y1} Z" fill="${on ? LV_COLOR(level) : '#f3f4f6'}" stroke="${on ? LV_COLOR(level) : '#9ca3af'}" stroke-width="1"/>`;
+  }
+  return `<svg class="lvl" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="Ступень ${level} из 6">${s}</svg>`;
+}

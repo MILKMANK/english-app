@@ -3,19 +3,18 @@ import * as db from '../core/db.js';
 import { tokenize, esc } from '../core/textUtils.js';
 import { markTranslationAny } from '../core/translator.js';
 import { titleRow, sortSelect, searchBox, bindPin, setCount, hit } from '../core/ui.js';
-import { PENCIL, TRASH } from '../core/icons.js';
-import { STATUS_INFO, isArchived, refreshArchive } from './srs.js';
+import { PENCIL, TRASH, levelCircle } from '../core/icons.js';
+import { LEVEL_TITLES, levelOf, refreshArchive } from './srs.js';
 
 export const SORTS = { az: 'A → Z', za: 'Z → A', newest: 'Сначала новые', oldest: 'Сначала старые', status: 'По статусу' };
 
 export function sortWords(words, mode) {
   const alpha = (x, y) => x.word.localeCompare(y.word);
-  const rank = { new: 0, learning: 1, learned: 2 };
   const a = [...words];
   if (mode === 'za') return a.sort((x, y) => alpha(y, x));
   if (mode === 'newest') return a.sort((x, y) => y.createdAt - x.createdAt || alpha(x, y));
   if (mode === 'oldest') return a.sort((x, y) => x.createdAt - y.createdAt || alpha(x, y));
-  if (mode === 'status') return a.sort((x, y) => rank[x.status] - rank[y.status] || alpha(x, y));
+  if (mode === 'status') return a.sort((x, y) => levelOf(x) - levelOf(y) || alpha(x, y));
   return a.sort(alpha);
 }
 
@@ -34,11 +33,7 @@ function highlightRu(sentence, translations) {
   if (!m) return esc(sentence);
   return esc(sentence.slice(0, m.start)) + '<mark>' + esc(sentence.slice(m.start, m.end)) + '</mark>' + esc(sentence.slice(m.end));
 }
-function statusTitle(w) {
-  const label = STATUS_INFO[w.status].label;
-  return isArchived(w) ? `${label} (в архиве до ${new Date(w.archivedUntil).toLocaleDateString('ru-RU')})` : label;
-}
-const legend = () => `<div class="legend">${Object.values(STATUS_INFO).map((i) => `<span class="dot" style="background:${i.color}"></span>${i.label.toLowerCase()}`).join(' ')}</div>`;
+const legend = () => '<div class="legend">Круг — ступень слова: повтор через 1 день · 3 · 7 · 14 · 30 · освоено</div>';
 
 export async function renderWordsTable(container) {
   await refreshArchive();
@@ -58,7 +53,7 @@ export async function renderWordsTable(container) {
       <div class="word-head">
         <div class="wt"><b>${hit(w.word, q)}</b> — ${hit(w.translations.join(', '), q)}</div>
         <div class="word-actions">
-          <span class="dot" style="background:${STATUS_INFO[w.status].color}" title="${esc(statusTitle(w))}"></span>
+          <span class="lv" title="${LEVEL_TITLES[levelOf(w)]}">${levelCircle(levelOf(w), 22)}</span>
           <button class="icon-btn" data-edit="${esc(w.word)}" title="Изменить переводы" aria-label="Изменить переводы">${PENCIL}</button>
           <button class="icon-btn" data-del="${esc(w.word)}" title="Удалить слово" aria-label="Удалить слово">${TRASH}</button>
         </div>

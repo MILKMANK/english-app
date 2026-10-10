@@ -13,5 +13,6 @@ export async function renderStats(container) {
       ${tile(s.learned, 'Изучено', STATUS_INFO.learned.color)}
       ${tile(s.learning, 'В процессе', STATUS_INFO.learning.color)}
       ${tile(s.new, 'Новые', STATUS_INFO.new.color)}
-    </div>`;
+    </div>
+    <p class="muted">На сегодня: повторов ${s.due} · новых слов ${s.new}</p>`;
 }

@@ -6,6 +6,7 @@ import { mountReader } from './reader/readerView.js';
 import { mountStudy } from './study/studyView.js';
 import { mountSettings } from './settings/settingsView.js';
 import { SEED_WORDS } from './core/seed.js';
+import { refreshArchive } from './vocabulary/srs.js';
 
 const translator = createTranslator({
   getCache: db.getCache, setCache: db.setCache, getEmail: () => db.getSetting('email', ''),
@@ -50,7 +51,8 @@ async function show(tab) {
 
 async function start() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // просим браузер не удалять данные сам
-  try { await seedOnce(); } catch (e) { view.innerHTML = `<p class="err">Ошибка базы: ${e.message}</p>`; return; }
+  try { await seedOnce(); await refreshArchive(); } // refreshArchive переносит слова старой версии на ступени
+   catch (e) { view.innerHTML = `<p class="err">Ошибка базы: ${e.message}</p>`; return; }
   tabs.querySelectorAll('button').forEach((b) => (b.onclick = () => show(b.dataset.tab)));
   view.addEventListener('click', (e) => { const g = e.target.closest('[data-go]'); if (g) show(g.dataset.go); }); // шестерёнка в шапке
   await show(lastTab());

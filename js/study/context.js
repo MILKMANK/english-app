@@ -5,7 +5,7 @@
 import * as db from '../core/db.js';
 import { tokenize, esc } from '../core/textUtils.js';
 import { markTranslation, markTranslationAny } from '../core/translator.js';
-import { activeQueue, refreshArchive } from '../vocabulary/srs.js';
+import { buildBatch, today, refreshArchive } from '../vocabulary/srs.js';
 import { CHECK, CROSS, shuffle, topBar, messageScreen, block, sheet, applyAnswer } from './shared.js';
 
 export const BLANK = '_____';
@@ -39,10 +39,15 @@ function buildQuestion(w, all) {
 }
 
 export async function startContext(container, { onExit }) {
-  await refreshArchive();
-  const all = await db.getAllWords();
-  const queue = activeQueue(all).filter((w) => usableSentences(w).length);
-  let q = null, answered = null, busy = false, started = queue.length > 0, right = 0, wrong = 0, stopped = false;
+  let all = [], queue = [], counts = new Map();
+  let q = null, answered = null, busy = false, started = false, more = false, right = 0, wrong = 0, stopped = false;
+  const canAsk = (w) => usableSentences(w).length > 0;
+  async function reload() {
+    await refreshArchive();
+    all = await db.getAllWords();
+    queue = buildBatch(all, 'ctx', today(), canAsk);
+    counts = new Map(); started = queue.length > 0; more = false; right = 0; wrong = 0;
+  }
   const byWord = (word) => all.find((x) => x.word === word);
   const top = topBar;
   const message = messageScreen;
@@ -50,8 +55,8 @@ export async function startContext(container, { onExit }) {
     if (stopped) return;
     if (all.length < MIN_WORDS) { container.innerHTML = message('', `Для квиза нужно минимум ${MIN_WORDS} слова в словаре (сейчас ${all.length})`); return; }
     if (!q) {
-      container.innerHTML = message(started ? 'Готово!' : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
-        : 'Нет слов для квиза: все слова изучены, лежат в архиве или у них нет подходящих предложений');
+      container.innerHTML = message(started ? (more ? 'Порция пройдена!' : 'На сегодня всё') : '', started ? `Верно: ${right} · Ошибок: ${wrong}`
+        : 'Нет слов для повторения сегодня в этом режиме', more);
       return;
     }
     const { word, sentence } = q;
@@ -76,8 +81,9 @@ export async function startContext(container, { onExit }) {
       <div class="qz-bot">${bot}</div></div>`;
   }
 
-  function next() {
-    q = queue.length ? buildQuestion(queue[0], all) : null;
+  async function next() {
+    if (!queue.length) { q = null; more = buildBatch(await db.getAllWords(), 'ctx', today(), canAsk).length > 0; }
+    else q = buildQuestion(queue[0], all);
     answered = null;
     render();
   }
@@ -86,7 +92,7 @@ export async function startContext(container, { onExit }) {
     if (busy || answered || !q) return;
     busy = true;
     try {
-      const ok = await applyAnswer(queue, q.word, opt);
+      const ok = await applyAnswer(queue, counts, q.word, opt, 'ctx');
       if (ok) right++; else wrong++;
       answered = { chosen: opt };
       render();
@@ -99,6 +105,7 @@ export async function startContext(container, { onExit }) {
     const a = e.target.closest('[data-fc]');
     if (!a) return;
     if (a.dataset.fc === 'next') next();
+    else if (a.dataset.fc === 'more') { reload().then(next); }
     else if (a.dataset.fc === 'exit') { stop(); onExit(); }
   };
   const onKey = (e) => {
@@ -108,6 +115,7 @@ export async function startContext(container, { onExit }) {
   document.addEventListener('keydown', onKey);
   function stop() { stopped = true; document.removeEventListener('keydown', onKey); container.onclick = null; }
 
-  next();
+  await reload();
+  await next();
   return stop;
 }
